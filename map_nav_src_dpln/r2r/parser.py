@@ -1,0 +1,210 @@
+import argparse
+import os
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="")
+
+    parser.add_argument('--root_dir', type=str, default='../datasets')
+    parser.add_argument('--dataset', type=str, default='r2r', choices=['r2r', 'r4r', 'rxr'])
+    parser.add_argument('--output_dir', type=str, default='default', help='experiment id')
+    parser.add_argument('--seed', type=int, default=0)
+
+    parser.add_argument('--tokenizer', choices=['bert', 'xlm'], default='bert')
+
+    parser.add_argument('--act_visited_nodes', action='store_true', default=False)
+    parser.add_argument('--fusion', choices=['global', 'local', 'avg', 'dynamic'])
+    parser.add_argument('--expl_sample', action='store_true', default=False)
+    parser.add_argument('--expl_max_ratio', type=float, default=0.6)
+    parser.add_argument('--expert_policy', default='spl', choices=['spl', 'ndtw'])
+
+    # distributional training
+    parser.add_argument('--local_rank', type=int, default=-1)
+    parser.add_argument("--node_rank", type=int, default=0, help="Id of the node")
+    
+    # General
+    parser.add_argument('--iters', type=int, default=100000, help='training iterations')
+    parser.add_argument('--log_every', type=int, default=1000)
+    parser.add_argument('--eval_first', action='store_true', default=False)
+
+    # Data preparation
+    parser.add_argument('--max_instr_len', type=int, default=80)
+    parser.add_argument('--max_action_len', type=int, default=15)
+    parser.add_argument('--batch_size', type=int, default=8)
+    parser.add_argument('--ignoreid', type=int, default=-100, help='ignoreid for action')
+    
+    # Load the model from
+    parser.add_argument("--resume_file", default=None, help='path of the trained model')
+    parser.add_argument("--resume_optimizer", action="store_true", default=False)
+
+    # Augmented Paths from
+    parser.add_argument("--aug", default=None)
+    # parser.add_argument("--aug_train", default=None)
+    parser.add_argument('--bert_ckpt_file', default=None, help='init vlnbert')
+
+    # Listener Model Config
+    parser.add_argument("--ml_weight", type=float, default=0.20)
+    parser.add_argument('--entropy_loss_weight', type=float, default=0.01)
+
+    parser.add_argument("--features", type=str, default='vitbase')
+    parser.add_argument("--env_aug", action='store_true', default=False)
+    parser.add_argument("--aug_times", type=int, default=9)
+
+    parser.add_argument('--fix_lang_embedding', action='store_true', default=False)
+    parser.add_argument('--fix_pano_embedding', action='store_true', default=False)
+    parser.add_argument('--fix_local_branch', action='store_true', default=False)
+
+    parser.add_argument('--num_l_layers', type=int, default=9)
+    parser.add_argument('--num_pano_layers', type=int, default=2)
+    parser.add_argument('--num_x_layers', type=int, default=4)
+
+    parser.add_argument('--enc_full_graph', default=False, action='store_true')
+    parser.add_argument('--graph_sprels', action='store_true', default=False)
+
+    # Dropout Param
+    parser.add_argument('--dropout', type=float, default=0.5)
+    parser.add_argument('--feat_dropout', type=float, default=0.3)
+
+    # Submision configuration
+    parser.add_argument('--test', action='store_true', default=False)
+    parser.add_argument("--submit", action='store_true', default=False)
+    parser.add_argument('--no_backtrack', action='store_true', default=False)
+    parser.add_argument('--detailed_output', action='store_true', default=False)
+    parser.add_argument('--downsample', action='store_true', default=False)
+
+    # Training Configurations
+    parser.add_argument(
+        '--optim', type=str, default='rms',
+        choices=['rms', 'adam', 'adamW', 'sgd']
+    )    # rms, adam
+    parser.add_argument('--lr', type=float, default=0.00001, help="the learning rate")
+    parser.add_argument('--decay', dest='weight_decay', type=float, default=0.)
+    parser.add_argument(
+        '--feedback', type=str, default='sample',
+        help='How to choose next position, one of ``teacher``, ``sample`` and ``argmax``'
+    )
+    parser.add_argument('--epsilon', type=float, default=0.1, help='')
+
+    # Model hyper params:
+    parser.add_argument("--angle_feat_size", type=int, default=4)
+    parser.add_argument('--image_feat_size', type=int, default=768)
+    parser.add_argument('--obj_feat_size', type=int, default=0)
+    parser.add_argument('--views', type=int, default=36)
+
+    # # A2C
+    parser.add_argument("--gamma", default=0.9, type=float, help='reward discount factor')
+    parser.add_argument(
+        "--normalize", dest="normalize_loss", default="total", 
+        type=str, help='batch or total'
+    )
+    parser.add_argument('--train_alg', 
+        choices=['imitation', 'dagger', 'dsrl', 'ssrl'],
+        default='imitation'
+    )
+
+    # 双策略网络相关参数
+    parser.add_argument('--use_dual_policy', action='store_true', default=False,
+                        help='Enable dual policy network for navigation')
+    parser.add_argument('--reward_actor_lr', type=float, default=0.5,
+                        help='Learning rate multiplier for reward actor')
+    parser.add_argument('--penalty_actor_lr', type=float, default=0.3,
+                        help='Learning rate multiplier for penalty actor')
+    parser.add_argument('--use_dynamic_ml_weight', type=int, default=-1,
+                        help='ML weight decay steps. Set to -1 to disable dynamic ML weight decay')
+    parser.add_argument('--use_dynamic_rl_weight', type=int, default=-1,
+                        help='RL weight warmup steps. Set to -1 to disable dynamic RL weight schedule')
+
+    # LSTM相关参数
+    parser.add_argument('--lambda_coef', type=float, default=0.5,
+                        help='Initial value for lambda coefficient')
+    parser.add_argument('--lambda_max', type=float, default=0.5,
+                        help='Maximum value for lambda coefficient')
+    parser.add_argument('--lambda_warmup_steps', type=int, default=50000,
+                        help='Warmup steps for lambda coefficient')
+    parser.add_argument('--memory_size', type=int, default=20,
+                        help='Size of memory bank for LSTM')
+
+    # 奖励和惩罚函数系数
+    parser.add_argument('--progress_reward_weight', type=float, default=2.0,
+                        help='Weight for progress reward')
+    parser.add_argument('--success_reward', type=float, default=10.0,
+                        help='Reward for successfully reaching goal')
+    parser.add_argument('--revisit_penalty', type=float, default=2.0,
+                        help='Penalty for revisiting nodes')
+    parser.add_argument('--step_penalty', type=float, default=0.1,
+                        help='Penalty for each step taken')
+    parser.add_argument('--failure_penalty_weight', type=float, default=2.0,
+                        help='Weight for failure to reach goal penalty')
+    parser.add_argument('--oracle_failure_penalty_weight', type=float, default=1.5,
+                        help='Weight for oracle failure penalty')
+    parser.add_argument('--early_stop_penalty', type=float, default=3.0,
+                        help='Penalty for stopping too far from goal')
+
+    # 分层注意力参数
+    parser.add_argument('--num_attention_heads', type=int, default=8,
+                        help='Number of attention heads for hierarchical attention')
+    parser.add_argument('--fusion_dropout', type=float, default=0.1,
+                        help='Dropout for hierarchical attention fusion')
+    # 测试模型路径
+    parser.add_argument('--models_dir', type=str, default=None,
+                        help='path to the directory containing model files for batch testing')
+
+    args, _ = parser.parse_known_args()
+
+    args = postprocess_args(args)
+
+    return args
+
+
+def postprocess_args(args):
+    ROOTDIR = args.root_dir
+
+    # Setup input paths
+    ft_file_map = {
+        'vitbase': 'pth_vit_base_patch16_224_imagenet.hdf5',
+        'clip_b16': 'clip_vit-b16_mp3d_hm3d_gibson.hdf5',
+        'clip_h14': 'clip_vit-h14_mp3d_hm3d_gibson.hdf5',
+        'clip_l14': 'pth_vit_base_patch32_224_clip.hdf5',
+        'vitclip': 'pth_vit_base_patch16_224_clip.hdf5',
+    }
+    args.img_ft_file = os.path.join(ROOTDIR, 'R2R', 'features', ft_file_map[args.features])
+
+    if args.features == 'clip_h14':
+        args.mp3d_ft_files = [os.path.join(ROOTDIR, 'R2R', 'features', 'clip_vit-h14_mp3d_original.hdf5')]
+        args.val_ft_file = os.path.join(ROOTDIR, 'R2R', 'features', 'clip_vit-h14_mp3d_original.hdf5')
+    elif args.features == 'clip_b16':
+        args.mp3d_ft_files = [os.path.join(ROOTDIR, 'R2R', 'features', 'clip_vit-b16_mp3d_original.hdf5')]
+        args.val_ft_file = os.path.join(ROOTDIR, 'R2R', 'features', 'clip_vit-b16_mp3d_original.hdf5')
+
+    if args.env_aug: # only h14
+        args.mp3d_ft_files = [
+            os.path.join(ROOTDIR, 'R2R', 'features', 'clip_vit-h14_mp3d_img_image_synthesis.hdf5'),
+            os.path.join(ROOTDIR, 'R2R', 'features', 'clip_vit-h14_mp3d_img_mask_image_synthesis.hdf5'),
+            os.path.join(ROOTDIR, 'R2R', 'features', 'clip_vit-h14_mp3d_img_style_transfer.hdf5'),
+            os.path.join(ROOTDIR, 'R2R', 'features', 'clip_vit-h14_mp3d_original.hdf5'),
+            ]
+
+    if args.aug:
+        args.connectivity_dir = os.path.join(ROOTDIR, 'R2R', 'aug_connectivity')
+    else:
+        args.connectivity_dir = os.path.join(ROOTDIR, 'R2R', 'connectivity')
+
+    args.scan_data_dir = os.path.join(ROOTDIR, 'Matterport3D', 'v1_unzip_scans')
+
+    if args.dataset == 'rxr':
+        args.anno_dir = os.path.join(ROOTDIR, 'RxR', 'annotations')
+    else:
+        args.anno_dir = os.path.join(ROOTDIR, 'R2R', 'annotations')
+
+    # Build paths
+    args.ckpt_dir = os.path.join(args.output_dir, 'ckpts')
+    args.log_dir = os.path.join(args.output_dir, 'logs')
+    args.pred_dir = os.path.join(args.output_dir, 'preds')
+
+    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(args.ckpt_dir, exist_ok=True)
+    os.makedirs(args.log_dir, exist_ok=True)
+    os.makedirs(args.pred_dir, exist_ok=True)
+
+    return args
+
